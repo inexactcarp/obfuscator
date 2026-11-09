@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Config Obfuscator</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <div>
+      <h1>Config Obfuscator</h1>
+      <p>Redacts secrets in Cisco IOS, IOS-XE, NX-OS, and Arista EOS switch and router configs. The file stays in this browser. Nothing is uploaded or saved.</p>
+    </div>
+  </header>
+
+  <main>
+    <form id="controls" class="controls">
+      <label>
+        Platform
+        <select id="platform">
+          <option value="auto">Auto</option>
+          <option value="ios">Cisco IOS / IOS-XE</option>
+          <option value="nxos">Cisco NX-OS</option>
+          <option value="eos">Arista EOS</option>
+        </select>
+      </label>
+      <label class="file">
+        Config file
+        <input id="file" type="file" accept=".cfg,.conf,.config,.txt,.text,.log,text/plain">
+      </label>
+      <div class="buttons">
+        <button type="submit" id="obfuscate">Obfuscate</button>
+        <button type="button" id="clear">Clear</button>
+      </div>
+    </form>
+
+    <p id="status" class="status" role="status">Paste a configuration or choose a file, then obfuscate.</p>
+
+    <div class="panes">
+      <section>
+        <label for="input">Input</label>
+        <textarea id="input" wrap="off" spellcheck="false" autocomplete="off" placeholder="Paste a running-config here"></textarea>
+      </section>
+      <section>
+        <div class="pane-head">
+          <label for="output">Obfuscated output</label>
+          <div class="buttons">
+            <button type="button" id="copy" disabled>Copy</button>
+            <button type="button" id="download" disabled>Download</button>
+          </div>
+        </div>
+        <textarea id="output" wrap="off" spellcheck="false" readonly placeholder="Obfuscated config appears here"></textarea>
+      </section>
+    </div>
+
+    <section class="summary-wrap">
+      <h2>Redaction summary</h2>
+      <div id="summary">
+        <p class="muted">No results yet. Counts show how many fields were replaced. Values are not listed.</p>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <p>The same secret string in one config always becomes the same <code>REDACTED_N</code> placeholder. A new run starts the numbers over. Hostnames, usernames, IP addresses, ACLs, VLANs, and descriptions stay.</p>
+  </footer>
+
+  <noscript>This tool needs JavaScript. It still does not send the config anywhere.</noscript>
+  <script type="module" src="src/app.js"></script>
+</body>
+</html>
