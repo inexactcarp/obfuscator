@@ -18,7 +18,7 @@ Install Go 1.22 or newer, then from this directory:
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o obfuscator.exe .
 ```
 
-`obfuscator.exe` needs no installer and no extra files. Copy it anywhere and double-click it. Close the console window to quit.
+A built copy is in this repository as [obfuscator.exe](obfuscator.exe). It needs no installer and no extra files. Download it, then double-click it. Close the console window to quit.
 
 The same command without `GOOS=windows GOARCH=amd64` builds a binary for the machine you are on:
 
