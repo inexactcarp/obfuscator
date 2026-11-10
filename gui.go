@@ -30,7 +30,7 @@ import (
 
 const maxFileBytes = 2 * 1024 * 1024
 
-const appVersion = "1.1.1"
+const appVersion = "1.1.2"
 
 // editorMaxPx is tall enough for a 2 MB config of short lines. The pane
 // scrolls as one list, so the text editor itself must not start scrolling.
@@ -847,6 +847,27 @@ func (u *ui) hspace(dp unit.Dp) layout.Widget {
 	}
 }
 
+// loadText replaces the open text. Prefix edits, detection, the summary,
+// and the output all belong to the previous text, so they are rebuilt.
+func (u *ui) loadText(text string) {
+	u.input.SetText(text)
+	u.output.SetText("")
+	u.inputSeen = ""
+	u.rows = nil
+	u.prefixSig = ""
+	u.applied = ""
+	u.hasOutput = false
+	u.platform.selected = 0
+	u.platform.open = false
+	u.placeholder.open = false
+	u.prefixAll.SetText("x.x")
+	u.summary = emptySummary
+	u.resetScroll()
+	u.focusInput = true
+	u.noteInput()
+	u.obfuscate()
+}
+
 func (u *ui) noteInput() {
 	text := u.input.Text()
 	if text == u.inputSeen {
@@ -1055,12 +1076,7 @@ func (u *ui) pollIO() {
 			u.setStatus("Saved the obfuscated config.", "ok")
 			return
 		}
-		u.input.SetText(result.text)
-		u.resetScroll()
-		u.inputSeen = "\x00"
-		u.focusInput = true
-		u.noteInput()
-		u.obfuscate()
+		u.loadText(result.text)
 	default:
 	}
 }

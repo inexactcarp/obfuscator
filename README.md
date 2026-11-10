@@ -14,7 +14,7 @@ Hostnames, usernames, interface names, descriptions, ACL structure, VLANs, and r
 
 Download [obfuscator.exe](obfuscator.exe). It is one file, with no installer and no extra files. Double-click it. A window opens. It does not open a browser and it does not listen on a network port. Close the window to quit.
 
-**Copy** puts the obfuscated text on the clipboard. **Save** writes that text to a file you choose. **Clear** wipes the window. **Scroll lock**, when on, scrolls the input and output panes together. The prefix list has its own scrollbar. **About** shows version 1.1.1.
+**Copy** puts the obfuscated text on the clipboard. **Save** writes that text to a file you choose. **Clear** wipes the window. **Scroll lock**, when on, scrolls the input and output panes together. The prefix list has its own scrollbar. **About** shows version 1.1.2. Opening another file rebuilds the prefix list, platform detection, summary, and output from that file. Prefix edits from the previous file are not kept.
 
 ## Build
 

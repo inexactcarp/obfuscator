@@ -5,14 +5,19 @@
  */
 
 const OCTET = "(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)";
-const IPV4 = new RegExp(
-  `(?<![\\d.])${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}(?![\\d.])`,
-  "g",
-);
+
+// A fresh global expression each call. Reusing one leaves lastIndex
+// advanced, and the next file is then scanned as if it had no addresses.
+function ipv4Pattern() {
+  return new RegExp(
+    `(?<![\\d.])${OCTET}\\.${OCTET}\\.${OCTET}\\.${OCTET}(?![\\d.])`,
+    "g",
+  );
+}
 
 export function scanPrefixes(text) {
   const found = new Set();
-  for (const match of String(text ?? "").matchAll(IPV4)) {
+  for (const match of String(text ?? "").matchAll(ipv4Pattern())) {
     const [first, second] = match[0].split(".");
     found.add(`${first}.${second}`);
   }
@@ -24,7 +29,7 @@ export function applyPrefixes(text, replacements) {
   const active = activeReplacements(replacements);
   if (active.size === 0) return { text: source, addressesRewritten: 0 };
   let addressesRewritten = 0;
-  const output = source.replace(IPV4, (ip) => {
+  const output = source.replace(ipv4Pattern(), (ip) => {
     const parts = ip.split(".");
     const prefix = `${parts[0]}.${parts[1]}`;
     const next = active.get(prefix);

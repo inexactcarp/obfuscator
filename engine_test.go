@@ -115,6 +115,31 @@ func TestCommandOutput(t *testing.T) {
 	}
 }
 
+func TestPrefixScanCanRunTwice(t *testing.T) {
+	eng := mustEngine(t)
+	first, err := eng.Scan("ip address 10.1.4.9 255.255.255.0\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := eng.Scan("ip address 192.168.5.5 255.255.255.0\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(first, ","), "10.1") {
+		t.Fatalf("first scan: %v", first)
+	}
+	if !strings.Contains(strings.Join(second, ","), "192.168") {
+		t.Fatalf("second scan dropped the new prefixes: %v", second)
+	}
+	rewritten, err := eng.Process("ip address 192.168.5.5 255.255.255.0\n", "auto", "REDACTED", map[string]string{"192.168": "x.x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(rewritten.Output, "x.x.5.5") {
+		t.Fatalf("rewrite after a second scan: %s", rewritten.Output)
+	}
+}
+
 func TestPrepareText(t *testing.T) {
 	text, err := prepareText([]byte{0xEF, 0xBB, 0xBF, 'a', 0, 'b', ' ', '1'})
 	if err != nil || text != "ab 1" {
