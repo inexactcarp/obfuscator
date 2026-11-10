@@ -20,7 +20,7 @@ func main() {
 		w.Option(
 			app.Title("Config Obfuscator"),
 			app.Size(unit.Dp(1100), unit.Dp(780)),
-			app.MinSize(unit.Dp(860), unit.Dp(640)),
+			app.MinSize(unit.Dp(560), unit.Dp(420)),
 		)
 		if err := ui.run(w); err != nil {
 			fmt.Fprintln(os.Stderr, "window closed:", err)

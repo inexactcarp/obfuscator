@@ -12,6 +12,7 @@ import (
 	"gioui.org/app"
 	"gioui.org/font/gofont"
 	"gioui.org/io/clipboard"
+	"gioui.org/io/key"
 	"gioui.org/layout"
 	"gioui.org/op"
 	"gioui.org/op/clip"
@@ -24,6 +25,8 @@ import (
 )
 
 const maxFileBytes = 2 * 1024 * 1024
+
+const appVersion = "1.1.0"
 
 const emptySummary = "No results yet. Counts show how many fields were replaced. Values are not listed."
 
@@ -94,23 +97,40 @@ type ui struct {
 	custom      widget.Editor
 	customSeen  string
 
-	prefixAll widget.Editor
-	rows      []prefixRow
-	prefixSig string
-	applied   string
-	list      layout.List
+	prefixAll  widget.Editor
+	rows       []prefixRow
+	prefixSig  string
+	applied    string
+	prefixList widget.List
 
-	input     widget.Editor
-	output    widget.Editor
-	inputSeen string
-	hasOutput bool
+	input      widget.Editor
+	output     widget.Editor
+	inCatch    widget.Clickable
+	outCatch   widget.Clickable
+	inputSeen  string
+	hasOutput  bool
+	inScroll   widget.List
+	outScroll  widget.List
+	pageScroll widget.List
+	scrollLock bool
+	scrollY    int
+	inOff      int
+	inMax      int
+	outOff     int
+	outMax     int
 
-	openBtn      widget.Clickable
-	obfuscateBtn widget.Clickable
-	clearBtn     widget.Clickable
-	setAllBtn    widget.Clickable
-	copyBtn      widget.Clickable
-	saveBtn      widget.Clickable
+	openBtn       widget.Clickable
+	obfuscateBtn  widget.Clickable
+	clearBtn      widget.Clickable
+	setAllBtn     widget.Clickable
+	copyBtn       widget.Clickable
+	saveBtn       widget.Clickable
+	aboutBtn      widget.Clickable
+	aboutClose    widget.Clickable
+	aboutBack     widget.Clickable
+	scrollLockBtn widget.Clickable
+	aboutOpen     bool
+	focusInput    bool
 
 	status     string
 	statusKind string
@@ -152,7 +172,10 @@ func newUI(eng *Engine) *ui {
 	u.input.WrapPolicy = text.WrapWords
 	u.output.WrapPolicy = text.WrapWords
 	u.output.ReadOnly = true
-	u.list.Axis = layout.Vertical
+	u.prefixList.Axis = layout.Vertical
+	u.inScroll.Axis = layout.Vertical
+	u.outScroll.Axis = layout.Vertical
+	u.pageScroll.Axis = layout.Vertical
 	return u
 }
 
@@ -176,11 +199,19 @@ func (u *ui) run(w *app.Window) error {
 func (u *ui) frame(gtx layout.Context) {
 	u.pollIO()
 	u.noteInput()
+	platformWasOpen := u.platform.open
+	placeholderWasOpen := u.placeholder.open
 	if u.platform.changed(gtx) && u.hasOutput {
 		u.obfuscate()
 	}
 	if u.placeholder.changed(gtx) && u.hasOutput {
 		u.obfuscate()
+	}
+	if u.platform.open && !platformWasOpen {
+		u.placeholder.open = false
+	}
+	if u.placeholder.open && !placeholderWasOpen {
+		u.platform.open = false
 	}
 	if u.placeholder.key() == "custom" && u.custom.Text() != u.customSeen {
 		u.customSeen = u.custom.Text()
@@ -188,7 +219,25 @@ func (u *ui) frame(gtx layout.Context) {
 			u.obfuscate()
 		}
 	}
+	if u.aboutBtn.Clicked(gtx) {
+		u.aboutOpen = true
+		u.platform.open = false
+		u.placeholder.open = false
+	}
+	if u.aboutClose.Clicked(gtx) || u.aboutBack.Clicked(gtx) {
+		u.aboutOpen = false
+	}
+	if u.scrollLockBtn.Clicked(gtx) {
+		u.scrollLock = !u.scrollLock
+		if u.scrollLock {
+			u.scrollY = u.inScroll.Position.Offset
+		}
+		u.platform.open = false
+		u.placeholder.open = false
+	}
 	if u.openBtn.Clicked(gtx) && !u.busy {
+		u.platform.open = false
+		u.placeholder.open = false
 		u.chooseFile()
 	}
 	if u.obfuscateBtn.Clicked(gtx) {
@@ -216,30 +265,108 @@ func (u *ui) frame(gtx layout.Context) {
 
 func (u *ui) draw(gtx layout.Context) {
 	paint.Fill(gtx.Ops, u.th.Palette.Bg)
-	layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(material.H5(u.th, "Config Obfuscator").Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						l := material.Body2(u.th, "Redacts secrets in Cisco IOS, IOS-XE, NX-OS, and Arista EOS configs. The text stays in this window. Nothing is uploaded or saved.")
-						l.Color = rgb(0x526072)
-						return l.Layout(gtx)
-					}),
-				)
-			}),
-			layout.Rigid(u.gap(10)),
-			layout.Rigid(u.controls),
-			layout.Rigid(u.gap(8)),
-			layout.Rigid(u.statusLine),
-			layout.Rigid(u.gap(8)),
-			layout.Rigid(u.prefixSection),
-			layout.Rigid(u.gap(8)),
-			layout.Flexed(1, u.editors),
-			layout.Rigid(u.gap(8)),
-			layout.Rigid(u.summarySection),
-		)
+	layout.UniformInset(unit.Dp(16)).Layout(gtx, u.layoutPage)
+	if u.aboutOpen {
+		u.aboutOverlay(gtx)
+	}
+	if u.focusInput {
+		u.focusInput = false
+		gtx.Execute(key.FocusCmd{Tag: &u.input})
+	}
+}
+
+func (u *ui) layoutPage(gtx layout.Context) layout.Dimensions {
+	gtx.Constraints.Min = image.Point{}
+	width := gtx.Constraints.Max.X
+	avail := gtx.Constraints.Max.Y
+	full := gtx
+	full.Constraints.Min.X = width
+	full.Constraints.Max.X = width
+	head := recordWidget(full, u.header)
+	summary := recordWidget(full, u.summarySection)
+	gap := gtx.Dp(unit.Dp(8))
+	wide := width >= gtx.Dp(unit.Dp(760))
+	// Editors shrink to this floor before the page itself scrolls.
+	floor := gtx.Dp(unit.Dp(140))
+	if !wide {
+		floor = gtx.Dp(unit.Dp(300))
+	}
+	used := head.size.Y + summary.size.Y + gap*2
+	editH := floor
+	if room := avail - used; room > floor {
+		editH = room
+	}
+	editGtx := full
+	editGtx.Constraints.Min.Y = editH
+	editGtx.Constraints.Max.Y = editH
+	editors := recordWidget(editGtx, u.editors)
+	contentH := head.size.Y + gap + editors.size.Y + gap + summary.size.Y
+	place := func(gtx layout.Context) layout.Dimensions {
+		y := 0
+		for _, part := range []recorded{head, editors, summary} {
+			trans := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
+			part.call.Add(gtx.Ops)
+			trans.Pop()
+			y += part.size.Y + gap
+		}
+		return layout.Dimensions{Size: image.Pt(width, contentH)}
+	}
+	if contentH <= avail {
+		place(gtx)
+		return layout.Dimensions{Size: image.Pt(width, avail)}
+	}
+	style := material.List(u.th, &u.pageScroll)
+	style.AnchorStrategy = material.Overlay
+	return style.Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+		gtx.Constraints.Min.X = width
+		gtx.Constraints.Max.X = width
+		gtx.Constraints.Min.Y = 0
+		gtx.Constraints.Max.Y = contentH
+		return place(gtx)
 	})
+}
+
+type recorded struct {
+	call op.CallOp
+	size image.Point
+}
+
+func recordWidget(gtx layout.Context, w layout.Widget) recorded {
+	gtx.Constraints.Min.Y = 0
+	macro := op.Record(gtx.Ops)
+	dims := w(gtx)
+	return recorded{call: macro.Stop(), size: dims.Size}
+}
+
+func (u *ui) header(gtx layout.Context) layout.Dimensions {
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(u.titleRow),
+		layout.Rigid(u.gap(10)),
+		layout.Rigid(u.controls),
+		layout.Rigid(u.gap(8)),
+		layout.Rigid(u.statusLine),
+		layout.Rigid(u.gap(8)),
+		layout.Rigid(u.prefixSection),
+	)
+}
+
+func (u *ui) titleRow(gtx layout.Context) layout.Dimensions {
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Start}.Layout(gtx,
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(material.H5(u.th, "Config Obfuscator").Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					l := material.Body2(u.th, "Redacts secrets in Cisco IOS, IOS-XE, NX-OS, and Arista EOS configs. The text stays in this window. Nothing is uploaded or saved.")
+					l.Color = rgb(0x526072)
+					return l.Layout(gtx)
+				}),
+			)
+		}),
+		layout.Rigid(u.hspace(8)),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return u.button(gtx, &u.aboutBtn, "About", true, false)
+		}),
+	)
 }
 
 func (u *ui) gap(dp unit.Dp) layout.Widget {
@@ -250,44 +377,31 @@ func (u *ui) gap(dp unit.Dp) layout.Widget {
 
 func (u *ui) controls(gtx layout.Context) layout.Dimensions {
 	return u.card(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Start}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return u.chooserLayout(gtx, &u.platform, 230)
-					}),
-					layout.Rigid(u.hspace(8)),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return u.chooserLayout(gtx, &u.placeholder, 180)
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						if u.placeholder.key() != "custom" {
-							return layout.Dimensions{}
-						}
-						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.End}.Layout(gtx,
-							layout.Rigid(u.hspace(8)),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return u.labeledEditor(gtx, "Custom placeholder", &u.custom, 160)
-							}),
-						)
-					}),
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return u.button(gtx, &u.openBtn, "Open file", !u.busy, false)
-					}),
-					layout.Rigid(u.hspace(8)),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return u.button(gtx, &u.obfuscateBtn, "Obfuscate", true, true)
-					}),
-					layout.Rigid(u.hspace(8)),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return u.button(gtx, &u.clearBtn, "Clear", true, false)
-					}),
-				)
-			}),
+		children := []layout.Widget{
+			func(gtx layout.Context) layout.Dimensions {
+				return u.chooserLayout(gtx, &u.platform, 220)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				return u.chooserLayout(gtx, &u.placeholder, 170)
+			},
+		}
+		if u.placeholder.key() == "custom" {
+			children = append(children, func(gtx layout.Context) layout.Dimensions {
+				return u.labeledEditor(gtx, "Custom placeholder", &u.custom, 160)
+			})
+		}
+		children = append(children,
+			func(gtx layout.Context) layout.Dimensions {
+				return u.button(gtx, &u.openBtn, "Open file", !u.busy, false)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				return u.button(gtx, &u.obfuscateBtn, "Obfuscate", true, true)
+			},
+			func(gtx layout.Context) layout.Dimensions {
+				return u.button(gtx, &u.clearBtn, "Clear", true, false)
+			},
 		)
+		return u.flow(gtx, unit.Dp(8), children...)
 	})
 }
 
@@ -349,17 +463,31 @@ func (u *ui) prefixSection(gtx layout.Context) layout.Dimensions {
 					l.Color = rgb(0x526072)
 					return l.Layout(gtx)
 				}
-				height := gtx.Dp(unit.Dp(28))*len(u.rows) + gtx.Dp(unit.Dp(4))*len(u.rows)
-				max := gtx.Dp(unit.Dp(150))
+				height := gtx.Dp(unit.Dp(36)) * len(u.rows)
+				max := gtx.Dp(unit.Dp(168))
 				if height > max {
 					height = max
 				}
 				gtx.Constraints.Max.Y = height
 				gtx.Constraints.Min.Y = height
-				return u.list.Layout(gtx, len(u.rows), func(gtx layout.Context, i int) layout.Dimensions {
+				// The parent stretches to the card width. Drop that minimum so the
+				// scrollbar sits beside the rows.
+				listW := gtx.Dp(unit.Dp(520))
+				if gtx.Constraints.Max.X > listW {
+					gtx.Constraints.Max.X = listW
+				}
+				gtx.Constraints.Min.X = 0
+				style := material.List(u.th, &u.prefixList)
+				style.AnchorStrategy = material.Overlay
+				style.Indicator.Color = rgb(0x64748b)
+				style.Indicator.HoverColor = rgb(0x1c2430)
+				return style.Layout(gtx, len(u.rows), func(gtx layout.Context, i int) layout.Dimensions {
 					row := &u.rows[i]
-					return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Max.X = gtx.Dp(unit.Dp(280))
+					return layout.Inset{Bottom: unit.Dp(4), Right: unit.Dp(14)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						maxW := gtx.Dp(unit.Dp(480))
+						if gtx.Constraints.Max.X > maxW {
+							gtx.Constraints.Max.X = maxW
+						}
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min.X = gtx.Dp(unit.Dp(72))
@@ -382,40 +510,86 @@ func (u *ui) prefixSection(gtx layout.Context) layout.Dimensions {
 }
 
 func (u *ui) editors(gtx layout.Context) layout.Dimensions {
-	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return u.editorPane(gtx, "Input", &u.input, "Paste a running-config or command output", false)
-		}),
-		layout.Rigid(u.hspace(10)),
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-						layout.Flexed(1, material.Body1(u.th, "Obfuscated output").Layout),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return u.button(gtx, &u.copyBtn, "Copy", u.output.Len() > 0, false)
-						}),
-						layout.Rigid(u.hspace(8)),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return u.button(gtx, &u.saveBtn, "Save", u.output.Len() > 0 && !u.busy, false)
-						}),
-					)
-				}),
-				layout.Rigid(u.gap(4)),
-				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return u.darkEditor(gtx, &u.output, "Obfuscated text appears here")
-				}),
-			)
-		}),
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(u.editorToolbar),
+		layout.Rigid(u.gap(6)),
+		layout.Flexed(1, u.editorPanes),
 	)
 }
 
-func (u *ui) editorPane(gtx layout.Context, title string, ed *widget.Editor, hint string, _ bool) layout.Dimensions {
+func (u *ui) editorToolbar(gtx layout.Context) layout.Dimensions {
+	label := "Scroll lock"
+	if u.scrollLock {
+		label = "Scroll lock on"
+	}
+	return u.flow(gtx, unit.Dp(8),
+		func(gtx layout.Context) layout.Dimensions {
+			return u.button(gtx, &u.scrollLockBtn, label, true, u.scrollLock)
+		},
+		func(gtx layout.Context) layout.Dimensions {
+			return u.button(gtx, &u.copyBtn, "Copy", u.output.Len() > 0, false)
+		},
+		func(gtx layout.Context) layout.Dimensions {
+			return u.button(gtx, &u.saveBtn, "Save", u.output.Len() > 0 && !u.busy, false)
+		},
+	)
+}
+
+func (u *ui) editorPanes(gtx layout.Context) layout.Dimensions {
+	wide := gtx.Constraints.Max.X >= gtx.Dp(unit.Dp(760))
+	var dims layout.Dimensions
+	if wide {
+		dims = layout.Flex{Axis: layout.Horizontal, Alignment: layout.Start}.Layout(gtx,
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return u.textPane(gtx, "Input", &u.inScroll, &u.input, "Paste a running-config or command output", true)
+			}),
+			layout.Rigid(u.hspace(10)),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return u.textPane(gtx, "Obfuscated output", &u.outScroll, &u.output, "Obfuscated text appears here", false)
+			}),
+		)
+	} else {
+		dims = layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return u.textPane(gtx, "Input", &u.inScroll, &u.input, "Paste a running-config or command output", true)
+			}),
+			layout.Rigid(u.gap(8)),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return u.textPane(gtx, "Obfuscated output", &u.outScroll, &u.output, "Obfuscated text appears here", false)
+			}),
+		)
+	}
+	if u.scrollLock {
+		next := reconcileScroll(u.scrollY, u.scrollY, u.inOff, u.inMax, u.scrollY, u.outOff, u.outMax)
+		if next != u.scrollY {
+			u.scrollY = next
+			gtx.Execute(op.InvalidateCmd{})
+		}
+	}
+	return dims
+}
+
+func (u *ui) textPane(gtx layout.Context, title string, scroll *widget.List, ed *widget.Editor, hint string, input bool) layout.Dimensions {
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(material.Body1(u.th, title).Layout),
-		layout.Rigid(u.gap(4)),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, material.Body1(u.th, title).Layout)
+		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return u.darkEditor(gtx, ed, hint)
+			if u.scrollLock {
+				scroll.Position.First = 0
+				scroll.Position.Offset = u.scrollY
+			}
+			catch := &u.outCatch
+			if input {
+				catch = &u.inCatch
+			}
+			off, maxScroll, dims := u.scrollingEditor(gtx, scroll, ed, catch, hint)
+			if input {
+				u.inOff, u.inMax = off, maxScroll
+			} else {
+				u.outOff, u.outMax = off, maxScroll
+			}
+			return dims
 		}),
 	)
 }
@@ -514,29 +688,151 @@ func (u *ui) field(gtx layout.Context, ed *widget.Editor, invalid bool) layout.D
 	})
 }
 
-func (u *ui) darkEditor(gtx layout.Context, ed *widget.Editor, hint string) layout.Dimensions {
-	size := gtx.Constraints.Max
-	if size.X < gtx.Constraints.Min.X {
-		size.X = gtx.Constraints.Min.X
+func (u *ui) scrollingEditor(gtx layout.Context, scroll *widget.List, ed *widget.Editor, catch *widget.Clickable, hint string) (int, int, layout.Dimensions) {
+	view := gtx.Constraints.Max.Y
+	if view < 1 {
+		view = 1
 	}
-	if size.Y < gtx.Constraints.Min.Y {
-		size.Y = gtx.Constraints.Min.Y
+	// A click on the empty part of the pane focuses the editor. Checked
+	// before Layout so the click is not discarded by the clickable.
+	if catch.Clicked(gtx) {
+		gtx.Execute(key.FocusCmd{Tag: ed})
 	}
+	size := image.Pt(gtx.Constraints.Max.X, view)
 	defer clip.RRect{
 		Rect: image.Rectangle{Max: size},
 		NE:   gtx.Dp(8), NW: gtx.Dp(8), SE: gtx.Dp(8), SW: gtx.Dp(8),
 	}.Push(gtx.Ops).Pop()
 	paint.ColorOp{Color: rgb(0x0f172a)}.Add(gtx.Ops)
 	paint.PaintOp{}.Add(gtx.Ops)
-	layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		style := material.Editor(u.th, ed, hint)
-		style.Font.Typeface = "Go Mono"
-		style.TextSize = unit.Sp(13)
-		style.Color = rgb(0xe7eef8)
-		style.HintColor = rgb(0x94a3b8)
-		return style.Layout(gtx)
+	style := material.List(u.th, scroll)
+	style.AnchorStrategy = material.Occupy
+	style.Indicator.Color = rgb(0x94a3b8)
+	style.Indicator.HoverColor = rgb(0xe7eef8)
+	dims := style.Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+		gtx.Constraints.Min.Y = 0
+		gtx.Constraints.Max.Y = 2_000_000
+		macro := op.Record(gtx.Ops)
+		edims := layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			editor := material.Editor(u.th, ed, hint)
+			editor.Font.Typeface = "Go Mono"
+			editor.TextSize = unit.Sp(13)
+			editor.Color = rgb(0xe7eef8)
+			editor.HintColor = rgb(0x94a3b8)
+			return editor.Layout(gtx)
+		})
+		call := macro.Stop()
+		h := edims.Size.Y
+		if h < view {
+			h = view
+		}
+		w := gtx.Constraints.Max.X
+		if edims.Size.X > w {
+			w = edims.Size.X
+		}
+		catch.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Dimensions{Size: image.Pt(w, h)}
+		})
+		call.Add(gtx.Ops)
+		return layout.Dimensions{Size: image.Pt(w, h)}
 	})
-	return layout.Dimensions{Size: size}
+	maxScroll := scroll.Position.Length - view
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if dims.Size.Y < view {
+		dims.Size.Y = view
+	}
+	if dims.Size.X < size.X {
+		dims.Size.X = size.X
+	}
+	return scroll.Position.Offset, maxScroll, dims
+}
+
+func (u *ui) aboutOverlay(gtx layout.Context) layout.Dimensions {
+	paint.Fill(gtx.Ops, color.NRGBA{A: 0x88})
+	u.aboutBack.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Dimensions{Size: gtx.Constraints.Max}
+	})
+	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		maxW := gtx.Dp(unit.Dp(420))
+		if gtx.Constraints.Max.X > maxW {
+			gtx.Constraints.Max.X = maxW
+		}
+		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		return u.card(gtx, func(gtx layout.Context) layout.Dimensions {
+			credit := material.Body1(u.th, "Developed by: Voy Sobi for CJWC")
+			version := material.Body1(u.th, "Version "+appVersion)
+			version.Color = rgb(0x526072)
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(material.H6(u.th, "Config Obfuscator").Layout),
+				layout.Rigid(u.gap(8)),
+				layout.Rigid(version.Layout),
+				layout.Rigid(u.gap(8)),
+				layout.Rigid(credit.Layout),
+				layout.Rigid(u.gap(14)),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return u.button(gtx, &u.aboutClose, "Close", true, true)
+				}),
+			)
+		})
+	})
+}
+
+func (u *ui) flow(gtx layout.Context, gap unit.Dp, children ...layout.Widget) layout.Dimensions {
+	if len(children) == 0 {
+		return layout.Dimensions{}
+	}
+	spacing := gtx.Dp(gap)
+	maxW := gtx.Constraints.Max.X
+	type item struct {
+		call op.CallOp
+		size image.Point
+	}
+	items := make([]item, len(children))
+	for i, child := range children {
+		cgtx := gtx
+		cgtx.Constraints.Min = image.Point{}
+		macro := op.Record(gtx.Ops)
+		dims := child(cgtx)
+		items[i] = item{call: macro.Stop(), size: dims.Size}
+	}
+	type placed struct {
+		call op.CallOp
+		at   image.Point
+	}
+	var row []placed
+	x, y, rowH, usedW := 0, 0, 0, 0
+	flush := func() {
+		for _, p := range row {
+			trans := op.Offset(p.at).Push(gtx.Ops)
+			p.call.Add(gtx.Ops)
+			trans.Pop()
+		}
+		row = row[:0]
+	}
+	for _, it := range items {
+		w := it.size.X
+		if x > 0 && x+w > maxW {
+			flush()
+			y += rowH + spacing
+			x = 0
+			rowH = 0
+		}
+		row = append(row, placed{call: it.call, at: image.Pt(x, y)})
+		if x+w > usedW {
+			usedW = x + w
+		}
+		x += w + spacing
+		if it.size.Y > rowH {
+			rowH = it.size.Y
+		}
+	}
+	flush()
+	if usedW > maxW {
+		usedW = maxW
+	}
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, y+rowH)}
 }
 
 func (u *ui) hspace(dp unit.Dp) layout.Widget {
@@ -678,7 +974,13 @@ func (u *ui) clear() {
 	u.hasOutput = false
 	u.platform.selected = 0
 	u.platform.open = false
+	u.placeholder.open = false
+	u.scrollY = 0
+	u.inScroll.Position = layout.Position{}
+	u.outScroll.Position = layout.Position{}
+	u.prefixList.Position = layout.Position{}
 	u.summary = emptySummary
+	u.focusInput = true
 	u.setStatus("Cleared. The config is not stored.", "ok")
 }
 
@@ -749,6 +1051,7 @@ func (u *ui) pollIO() {
 		}
 		u.input.SetText(result.text)
 		u.inputSeen = "\x00"
+		u.focusInput = true
 		u.noteInput()
 		u.obfuscate()
 	default:
@@ -819,6 +1122,50 @@ func summaryText(result Result) string {
 		fmt.Fprintf(&b, "\n%s: %d", category.Label, n)
 	}
 	return b.String()
+}
+
+func userScroll(assigned, result, maxScroll int) (bool, int) {
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if result < 0 {
+		result = 0
+	}
+	if result > maxScroll {
+		result = maxScroll
+	}
+	if result == assigned {
+		return false, result
+	}
+	if assigned > maxScroll && result == maxScroll {
+		return false, result
+	}
+	return true, result
+}
+
+func reconcileScroll(current, inAssigned, inResult, inMax, outAssigned, outResult, outMax int) int {
+	inMoved, inVal := userScroll(inAssigned, inResult, inMax)
+	outMoved, outVal := userScroll(outAssigned, outResult, outMax)
+	switch {
+	case inMoved && !outMoved:
+		return inVal
+	case outMoved && !inMoved:
+		return outVal
+	case inMoved && outMoved:
+		if absInt(inVal-current) >= absInt(outVal-current) {
+			return inVal
+		}
+		return outVal
+	default:
+		return current
+	}
+}
+
+func absInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func rgb(v uint32) color.NRGBA {
