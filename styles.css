@@ -148,6 +148,41 @@ textarea::placeholder { color: #7f93a1; }
 
 .summary-wrap ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 
+.prefix-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.75rem;
+  max-height: 14rem;
+  overflow: auto;
+  margin-top: 0.7rem;
+}
+
+.prefix-row {
+  display: grid;
+  grid-template-columns: 4.75rem 1rem 8.5rem;
+  gap: 0.35rem;
+  align-items: center;
+  width: max-content;
+  flex: 0 0 auto;
+  margin: 0;
+  font-weight: 500;
+}
+
+.prefix-found,
+.prefix-row input {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+  font-size: 0.92rem;
+}
+
+.prefix-arrow { color: var(--muted); }
+
+.prefix-row input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.35rem 0.45rem;
+}
+
 .muted { color: var(--muted); }
 
 footer { margin: 1rem auto 2rem; padding: 0.8rem 1rem; }

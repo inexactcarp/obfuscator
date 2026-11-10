@@ -4,7 +4,9 @@ Redacts secrets from Cisco IOS, IOS-XE, NX-OS, and Arista EOS switch and router 
 
 Paste a config or choose a `.cfg`, `.txt`, `.conf`, or similar text file. The tool replaces each secret field with a `REDACTED_N` placeholder. The same secret string in that config always gets the same placeholder, so repeated keys stay recognizable without revealing the value. Numbering starts over on the next run. The summary is counts by category. It never lists the removed values.
 
-Hostnames, usernames, IP addresses, interface names, descriptions, ACLs, VLANs, and routing structure stay. A description or banner is left as written, even if it contains the word "password".
+Before secrets are redacted, the page lists every unique IPv4 prefix (the first two octets). Edit a prefix to replace it everywhere in the config with any string. `10.1.4.9` with prefix `10.1` set to `SITEA` becomes `SITEA.4.9`. The last two octets stay. A prefix left equal to itself is not changed, so addresses stay put until you edit them. The same prefix is rewritten in addresses, ACLs, and banners. Subnet masks and wildcards are dotted quads too, so they show up in the list and stay unless you edit them.
+
+Hostnames, usernames, interface names, descriptions, ACL structure, VLANs, and routing structure stay. A description or banner is not treated as a secret, even if it contains the word "password". IPv6 addresses are not listed or rewritten.
 
 ## Run locally
 
@@ -60,3 +62,4 @@ Platform detection is a hint. Auto labels a config as Cisco IOS / IOS-XE, Cisco 
 - A secret that is only a hash algorithm name (`sha512`) and is followed by more tokens can be mis-read as the hash type.
 - Public certificate bodies and `ip ssh pubkey-chain` key hashes are intentionally left in place.
 - The tool replaces stored hashes. It does not decrypt type 7 or any other encoding, and it does not print the original value to prove a match.
+- IPv6 addresses are not scanned or rewritten. Only dotted IPv4 addresses expose their first two octets.

@@ -1,3 +1,4 @@
+import { scanPrefixes } from "./prefixes.js";
 import { CATEGORIES, PLATFORM_LABELS, processConfig } from "./process.js";
 
 const form = document.querySelector("#controls");
@@ -10,6 +11,9 @@ const summary = document.querySelector("#summary");
 const copyButton = document.querySelector("#copy");
 const downloadButton = document.querySelector("#download");
 const clearButton = document.querySelector("#clear");
+const prefixList = document.querySelector("#prefix-list");
+
+let prefixSignature = null;
 
 const MAX_BYTES = 2 * 1024 * 1024;
 
@@ -49,15 +53,24 @@ input.addEventListener("keydown", (event) => {
   }
 });
 
+input.addEventListener("input", () => {
+  refreshPrefixes();
+});
+
+prefixList.addEventListener("input", () => {
+  if (output.value) run();
+});
+
 function run() {
   const text = input.value;
   if (!text.trim()) {
     showEmpty();
     return;
   }
+  refreshPrefixes();
   let result;
   try {
-    result = processConfig(text, platform.value);
+    result = processConfig(text, platform.value, readPrefixEdits());
   } catch {
     output.value = "";
     setActions();
@@ -104,6 +117,13 @@ function renderSummary(result) {
     ? "1 secret field replaced."
     : `${total} secret fields replaced.`;
   summary.appendChild(heading);
+  if (result.addressesRewritten) {
+    const rewritten = document.createElement("p");
+    rewritten.textContent = result.addressesRewritten === 1
+      ? "1 IPv4 address had its first two octets rewritten."
+      : `${result.addressesRewritten} IPv4 addresses had their first two octets rewritten.`;
+    summary.appendChild(rewritten);
+  }
   if (total === 0) {
     const note = document.createElement("p");
     note.className = "muted";
@@ -133,6 +153,7 @@ function renderEmptySummary() {
 function showEmpty() {
   output.value = "";
   setActions();
+  refreshPrefixes();
   setStatus("Paste a configuration or choose a file.", "warn");
   renderEmptySummary();
 }
@@ -143,8 +164,53 @@ function clearAll() {
   fileInput.value = "";
   platform.value = "auto";
   setActions();
+  refreshPrefixes();
   setStatus("Cleared. The config is not stored in this browser.", "ok");
   renderEmptySummary();
+}
+
+function refreshPrefixes() {
+  const found = scanPrefixes(input.value);
+  const signature = found.join("\n");
+  if (signature === prefixSignature) return;
+  const previous = readPrefixEdits();
+  prefixSignature = signature;
+  prefixList.replaceChildren();
+  if (found.length === 0) {
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.textContent = "No IPv4 addresses in the config yet.";
+    prefixList.appendChild(note);
+    return;
+  }
+  for (const prefix of found) {
+    const row = document.createElement("label");
+    row.className = "prefix-row";
+    const name = document.createElement("span");
+    name.className = "prefix-found";
+    name.textContent = prefix;
+    const arrow = document.createElement("span");
+    arrow.className = "prefix-arrow";
+    arrow.textContent = "→";
+    arrow.setAttribute("aria-hidden", "true");
+    const field = document.createElement("input");
+    field.type = "text";
+    field.spellcheck = false;
+    field.autocomplete = "off";
+    field.dataset.prefix = prefix;
+    field.value = Object.prototype.hasOwnProperty.call(previous, prefix) ? previous[prefix] : prefix;
+    field.setAttribute("aria-label", `Replacement for ${prefix}`);
+    row.append(name, arrow, field);
+    prefixList.appendChild(row);
+  }
+}
+
+function readPrefixEdits() {
+  const edits = {};
+  for (const field of prefixList.querySelectorAll("input[data-prefix]")) {
+    edits[field.dataset.prefix] = field.value;
+  }
+  return edits;
 }
 
 async function copyOutput() {
@@ -181,3 +247,5 @@ function setStatus(message, kind) {
   status.textContent = message;
   status.className = kind ? `status ${kind}` : "status";
 }
+
+refreshPrefixes();

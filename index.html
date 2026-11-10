@@ -37,6 +37,14 @@
 
     <p id="status" class="status" role="status">Paste a configuration or choose a file, then obfuscate.</p>
 
+    <section class="summary-wrap" id="prefixes">
+      <h2>IPv4 prefixes</h2>
+      <p class="muted">First two octets of every IPv4 address, before secrets are redacted. Edit a value to replace that prefix everywhere in the config. The last two octets stay. Leave a prefix as it is to keep it.</p>
+      <div id="prefix-list">
+        <p class="muted">No IPv4 addresses in the config yet.</p>
+      </div>
+    </section>
+
     <div class="panes">
       <section>
         <label for="input">Input</label>
@@ -63,7 +71,7 @@
   </main>
 
   <footer>
-    <p>The same secret string in one config always becomes the same <code>REDACTED_N</code> placeholder. A new run starts the numbers over. Hostnames, usernames, IP addresses, ACLs, VLANs, and descriptions stay.</p>
+    <p>The same secret string in one config always becomes the same <code>REDACTED_N</code> placeholder. A new run starts the numbers over. Hostnames, usernames, ACLs, VLANs, and descriptions stay. IPv4 addresses keep their last two octets unless you change a prefix above.</p>
   </footer>
 
   <noscript>This tool needs JavaScript. It still does not send the config anywhere.</noscript>

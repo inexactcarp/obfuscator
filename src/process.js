@@ -1,23 +1,29 @@
 import { detectPlatform, PLATFORM_LABELS } from "./detect.js";
+import { applyPrefixes, scanPrefixes } from "./prefixes.js";
 import { CATEGORIES, redactConfig } from "./redact.js";
 
-export { CATEGORIES, PLATFORM_LABELS };
+export { CATEGORIES, PLATFORM_LABELS, scanPrefixes };
 
 /**
- * Redact a config in memory. `override` is "auto", "ios", "nxos", or "eos".
- * The returned object never includes the secret-to-placeholder map.
+ * Rewrite selected IPv4 prefixes, then redact secrets.
+ * `override` is "auto", "ios", "nxos", or "eos".
+ * `replacements` maps a first-two-octet prefix to the string that should
+ * replace it. The returned object never includes the secret map or full addresses.
  */
-export function processConfig(text, override = "auto") {
+export function processConfig(text, override = "auto", replacements) {
   const source = String(text ?? "");
   const detection = detectPlatform(source);
   const useOverride = Boolean(override) && override !== "auto";
   const platform = useOverride ? override : detection.platform;
-  const { output, counts } = redactConfig(source);
+  const prefixed = applyPrefixes(source, replacements);
+  const { output, counts } = redactConfig(prefixed.text);
   return {
     output,
     counts,
     detection,
     platform,
+    prefixes: scanPrefixes(source),
+    addressesRewritten: prefixed.addressesRewritten,
     uncertain: !useOverride && detection.platform === "unknown",
   };
 }
