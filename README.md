@@ -14,17 +14,17 @@ Hostnames, usernames, interface names, descriptions, ACL structure, VLANs, and r
 
 Download [obfuscator.exe](obfuscator.exe). It is one file, with no installer and no extra files. Double-click it. A window opens. It does not open a browser and it does not listen on a network port. Close the window to quit.
 
-**Copy** puts the obfuscated text on the clipboard. **Save** writes that text to a file you choose. **Clear** wipes the window. **Scroll lock**, when on, scrolls the input and output panes together. The prefix list has its own scrollbar. **About** shows version 1.1.0.
+**Copy** puts the obfuscated text on the clipboard. **Save** writes that text to a file you choose. **Clear** wipes the window. **Scroll lock**, when on, scrolls the input and output panes together. The prefix list has its own scrollbar. **About** shows version 1.1.1.
 
 ## Build
 
 Install Go 1.22 or newer, then from this directory:
 
 ```bash
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -H windowsgui" -o obfuscator.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -tags noopengl -ldflags "-s -w -H windowsgui" -o obfuscator.exe .
 ```
 
-`-H windowsgui` builds a windowed program, so double-clicking it does not open a console.
+`-H windowsgui` builds a windowed program, so double-clicking it does not open a console. `-tags noopengl` leaves Direct3D as the only renderer. That is the one Windows uses.
 
 ## Tests
 

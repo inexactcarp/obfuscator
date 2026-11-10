@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	"gioui.org/app"
-	"gioui.org/font/gofont"
+	"gioui.org/font"
+	"gioui.org/font/opentype"
 	"gioui.org/io/clipboard"
 	"gioui.org/io/key"
 	"gioui.org/layout"
@@ -22,11 +23,18 @@ import (
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 	"gioui.org/x/explorer"
+	"golang.org/x/image/font/gofont/gomedium"
+	"golang.org/x/image/font/gofont/gomono"
+	"golang.org/x/image/font/gofont/goregular"
 )
 
 const maxFileBytes = 2 * 1024 * 1024
 
-const appVersion = "1.1.0"
+const appVersion = "1.1.1"
+
+// editorMaxPx is tall enough for a 2 MB config of short lines. The pane
+// scrolls as one list, so the text editor itself must not start scrolling.
+const editorMaxPx = 64_000_000
 
 const emptySummary = "No results yet. Counts show how many fields were replaced. Values are not listed."
 
@@ -128,6 +136,7 @@ type ui struct {
 	aboutBtn      widget.Clickable
 	aboutClose    widget.Clickable
 	aboutBack     widget.Clickable
+	aboutCard     widget.Clickable
 	scrollLockBtn widget.Clickable
 	aboutOpen     bool
 	focusInput    bool
@@ -141,7 +150,7 @@ type ui struct {
 
 func newUI(eng *Engine) *ui {
 	th := material.NewTheme()
-	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(uiFonts()))
 	th.Face = "Go"
 	th.Palette = material.Palette{
 		Fg:         rgb(0x1c2430),
@@ -224,6 +233,8 @@ func (u *ui) frame(gtx layout.Context) {
 		u.platform.open = false
 		u.placeholder.open = false
 	}
+	// Clicks on the card are consumed so they do not fall through to the backdrop.
+	u.aboutCard.Clicked(gtx)
 	if u.aboutClose.Clicked(gtx) || u.aboutBack.Clicked(gtx) {
 		u.aboutOpen = false
 	}
@@ -395,7 +406,7 @@ func (u *ui) controls(gtx layout.Context) layout.Dimensions {
 				return u.button(gtx, &u.openBtn, "Open file", !u.busy, false)
 			},
 			func(gtx layout.Context) layout.Dimensions {
-				return u.button(gtx, &u.obfuscateBtn, "Obfuscate", true, true)
+				return u.button(gtx, &u.obfuscateBtn, "Obfuscate", !u.busy, true)
 			},
 			func(gtx layout.Context) layout.Dimensions {
 				return u.button(gtx, &u.clearBtn, "Clear", true, false)
@@ -421,7 +432,6 @@ func (u *ui) chooserLayout(gtx layout.Context, c *chooser, width unit.Dp) layout
 			}
 			var kids []layout.FlexChild
 			for i := range c.items {
-				i := i
 				kids = append(kids, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Dp(width)
 					if gtx.Constraints.Max.X < gtx.Constraints.Min.X {
@@ -711,7 +721,7 @@ func (u *ui) scrollingEditor(gtx layout.Context, scroll *widget.List, ed *widget
 	style.Indicator.HoverColor = rgb(0xe7eef8)
 	dims := style.Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
 		gtx.Constraints.Min.Y = 0
-		gtx.Constraints.Max.Y = 2_000_000
+		gtx.Constraints.Max.Y = editorMaxPx
 		macro := op.Record(gtx.Ops)
 		edims := layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			editor := material.Editor(u.th, ed, hint)
@@ -760,21 +770,23 @@ func (u *ui) aboutOverlay(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = maxW
 		}
 		gtx.Constraints.Min.X = gtx.Constraints.Max.X
-		return u.card(gtx, func(gtx layout.Context) layout.Dimensions {
-			credit := material.Body1(u.th, "Developed by: Voy Sobi for CJWC")
-			version := material.Body1(u.th, "Version "+appVersion)
-			version.Color = rgb(0x526072)
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(material.H6(u.th, "Config Obfuscator").Layout),
-				layout.Rigid(u.gap(8)),
-				layout.Rigid(version.Layout),
-				layout.Rigid(u.gap(8)),
-				layout.Rigid(credit.Layout),
-				layout.Rigid(u.gap(14)),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return u.button(gtx, &u.aboutClose, "Close", true, true)
-				}),
-			)
+		return u.aboutCard.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return u.card(gtx, func(gtx layout.Context) layout.Dimensions {
+				credit := material.Body1(u.th, "Developed by: Voy Sobi for CJWC")
+				version := material.Body1(u.th, "Version "+appVersion)
+				version.Color = rgb(0x526072)
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(material.H6(u.th, "Config Obfuscator").Layout),
+					layout.Rigid(u.gap(8)),
+					layout.Rigid(version.Layout),
+					layout.Rigid(u.gap(8)),
+					layout.Rigid(credit.Layout),
+					layout.Rigid(u.gap(14)),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return u.button(gtx, &u.aboutClose, "Close", true, true)
+					}),
+				)
+			})
 		})
 	})
 }
@@ -802,7 +814,7 @@ func (u *ui) flow(gtx layout.Context, gap unit.Dp, children ...layout.Widget) la
 		at   image.Point
 	}
 	var row []placed
-	x, y, rowH, usedW := 0, 0, 0, 0
+	x, y, rowH := 0, 0, 0
 	flush := func() {
 		for _, p := range row {
 			trans := op.Offset(p.at).Push(gtx.Ops)
@@ -820,19 +832,13 @@ func (u *ui) flow(gtx layout.Context, gap unit.Dp, children ...layout.Widget) la
 			rowH = 0
 		}
 		row = append(row, placed{call: it.call, at: image.Pt(x, y)})
-		if x+w > usedW {
-			usedW = x + w
-		}
 		x += w + spacing
 		if it.size.Y > rowH {
 			rowH = it.size.Y
 		}
 	}
 	flush()
-	if usedW > maxW {
-		usedW = maxW
-	}
-	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, y+rowH)}
+	return layout.Dimensions{Size: image.Pt(maxW, y+rowH)}
 }
 
 func (u *ui) hspace(dp unit.Dp) layout.Widget {
@@ -946,6 +952,9 @@ func (u *ui) obfuscate() {
 		return
 	}
 	u.output.SetText(result.Output)
+	if !u.scrollLock {
+		u.outScroll.Position = layout.Position{}
+	}
 	u.hasOutput = true
 	u.summary = summaryText(result)
 	kind := "ok"
@@ -975,10 +984,7 @@ func (u *ui) clear() {
 	u.platform.selected = 0
 	u.platform.open = false
 	u.placeholder.open = false
-	u.scrollY = 0
-	u.inScroll.Position = layout.Position{}
-	u.outScroll.Position = layout.Position{}
-	u.prefixList.Position = layout.Position{}
+	u.resetScroll()
 	u.summary = emptySummary
 	u.focusInput = true
 	u.setStatus("Cleared. The config is not stored.", "ok")
@@ -1050,12 +1056,21 @@ func (u *ui) pollIO() {
 			return
 		}
 		u.input.SetText(result.text)
+		u.resetScroll()
 		u.inputSeen = "\x00"
 		u.focusInput = true
 		u.noteInput()
 		u.obfuscate()
 	default:
 	}
+}
+
+func (u *ui) resetScroll() {
+	u.scrollY = 0
+	u.inScroll.Position = layout.Position{}
+	u.outScroll.Position = layout.Position{}
+	u.prefixList.Position = layout.Position{}
+	u.pageScroll.Position = layout.Position{}
 }
 
 func (u *ui) setStatus(message, kind string) {
@@ -1170,4 +1185,18 @@ func absInt(v int) int {
 
 func rgb(v uint32) color.NRGBA {
 	return color.NRGBA{R: uint8(v >> 16), G: uint8(v >> 8), B: uint8(v), A: 0xff}
+}
+
+// uiFonts embeds only the faces the window draws. The full Go family is
+// several extra megabytes of regular, italic, bold, and small-caps faces.
+func uiFonts() []font.FontFace {
+	var faces []font.FontFace
+	for _, ttf := range [][]byte{goregular.TTF, gomedium.TTF, gomono.TTF} {
+		parsed, err := opentype.ParseCollection(ttf)
+		if err != nil {
+			panic(err)
+		}
+		faces = append(faces, parsed...)
+	}
+	return faces
 }
