@@ -8,15 +8,17 @@ export { CATEGORIES, PLATFORM_LABELS, scanPrefixes };
  * Rewrite selected IPv4 prefixes, then redact secrets.
  * `override` is "auto", "ios", "nxos", or "eos".
  * `replacements` maps a first-two-octet prefix to the string that should
- * replace it. The returned object never includes the secret map or full addresses.
+ * replace it. A blank, unchanged, or undotted replacement is ignored.
+ * `options.placeholder` sets the token stem. The returned object never
+ * includes the secret map or full addresses.
  */
-export function processConfig(text, override = "auto", replacements) {
+export function processConfig(text, override = "auto", replacements, options = {}) {
   const source = String(text ?? "");
   const detection = detectPlatform(source);
   const useOverride = Boolean(override) && override !== "auto";
   const platform = useOverride ? override : detection.platform;
   const prefixed = applyPrefixes(source, replacements);
-  const { output, counts } = redactConfig(prefixed.text);
+  const { output, counts } = redactConfig(prefixed.text, options);
   return {
     output,
     counts,

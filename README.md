@@ -2,11 +2,13 @@
 
 Redacts secrets from Cisco IOS, IOS-XE, NX-OS, and Arista EOS switch and router configs in the browser. The config is not uploaded and is not stored.
 
-Paste a config or choose a `.cfg`, `.txt`, `.conf`, or similar text file. The tool replaces each secret field with a `REDACTED_N` placeholder. The same secret string in that config always gets the same placeholder, so repeated keys stay recognizable without revealing the value. Numbering starts over on the next run. The summary is counts by category. It never lists the removed values.
+Paste a config, command output, or any other text file. The file picker is not limited to config extensions. The tool replaces each secret field with a numbered placeholder. The default is `REDACTED_1`. The placeholder menu also offers `SECRET`, `XXXXX`, and `********`, and a custom box accepts another stem. The same secret string in that file always gets the same number, so repeated keys stay recognizable without revealing the value. Numbering starts over on the next run. The summary is counts by category. It never lists the removed values.
 
-Before secrets are redacted, the page lists every unique IPv4 prefix (the first two octets). Edit a prefix to replace it everywhere in the config with any string. `10.1.4.9` with prefix `10.1` set to `SITEA` becomes `SITEA.4.9`. The last two octets stay. A prefix left equal to itself is not changed, so addresses stay put until you edit them. The same prefix is rewritten in addresses, ACLs, and banners. Subnet masks and wildcards are dotted quads too, so they show up in the list and stay unless you edit them.
+Before secrets are redacted, the page lists every unique IPv4 prefix (the first two octets), including addresses in `show` output and logs. **Set all** writes one replacement onto every prefix. `x.x` is filled in as the example: `10.1.4.9` and `10.20.1.1` both become `x.x.4.9` and `x.x.1.1`. Editing a single row is optional. A replacement must contain a dot; a value without one is left unchanged. A prefix left equal to itself is not changed, so addresses stay put until you edit them. The last two octets stay. The same prefix is rewritten in addresses, ACLs, command output, and banners. Subnet masks and wildcards are dotted quads too, so they show up in the list and stay unless you edit them.
 
-Hostnames, usernames, interface names, descriptions, ACL structure, VLANs, and routing structure stay. A description or banner is not treated as a secret, even if it contains the word "password". IPv6 addresses are not listed or rewritten.
+Lines copied from a terminal may start with a prompt such as `edge-sw1#` or a syslog timestamp. Those prefixes are kept, and the command after them is still redacted. Labeled values such as `Password:` and `Community name:` are redacted too. A description, remark, or banner is not treated as a secret.
+
+Hostnames, usernames, interface names, descriptions, ACL structure, VLANs, and routing structure stay. IPv6 addresses are not listed or rewritten.
 
 ## Portable exe
 

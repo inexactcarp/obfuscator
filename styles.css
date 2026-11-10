@@ -58,6 +58,8 @@ p { margin: 0.3rem 0; }
   margin-top: 1rem;
 }
 
+[hidden] { display: none !important; }
+
 label {
   display: flex;
   flex-direction: column;
@@ -148,6 +150,22 @@ textarea::placeholder { color: #7f93a1; }
 
 .summary-wrap ul { margin: 0.4rem 0 0; padding-left: 1.2rem; }
 
+.prefix-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  align-items: end;
+  margin-top: 0.7rem;
+}
+
+.prefix-toolbar input {
+  font-family: ui-monospace, "Cascadia Code", "Source Code Pro", Menlo, Consolas, monospace;
+  width: 8rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.4rem 0.5rem;
+}
+
 .prefix-list {
   display: flex;
   flex-wrap: wrap;
@@ -182,6 +200,8 @@ textarea::placeholder { color: #7f93a1; }
   border-radius: 8px;
   padding: 0.35rem 0.45rem;
 }
+
+.prefix-row input.invalid { border-color: var(--error-ink); background: var(--error); }
 
 .muted { color: var(--muted); }
 

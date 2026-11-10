@@ -12,6 +12,11 @@ const copyButton = document.querySelector("#copy");
 const downloadButton = document.querySelector("#download");
 const clearButton = document.querySelector("#clear");
 const prefixList = document.querySelector("#prefix-list");
+const prefixAll = document.querySelector("#prefix-all");
+const setAllPrefixes = document.querySelector("#set-all-prefixes");
+const placeholderStyle = document.querySelector("#placeholder-style");
+const placeholderCustomWrap = document.querySelector("#placeholder-custom-wrap");
+const placeholderCustom = document.querySelector("#placeholder-custom");
 
 let prefixSignature = null;
 
@@ -61,6 +66,15 @@ prefixList.addEventListener("input", () => {
   if (output.value) run();
 });
 
+setAllPrefixes.addEventListener("click", applyAllPrefixes);
+placeholderStyle.addEventListener("change", () => {
+  placeholderCustomWrap.hidden = placeholderStyle.value !== "custom";
+  if (output.value) run();
+});
+placeholderCustom.addEventListener("input", () => {
+  if (placeholderStyle.value === "custom" && output.value) run();
+});
+
 function run() {
   const text = input.value;
   if (!text.trim()) {
@@ -68,9 +82,10 @@ function run() {
     return;
   }
   refreshPrefixes();
+  const edits = readPrefixEdits();
   let result;
   try {
-    result = processConfig(text, platform.value, readPrefixEdits());
+    result = processConfig(text, platform.value, edits.values, { placeholder: currentPlaceholder() });
   } catch {
     output.value = "";
     setActions();
@@ -80,18 +95,25 @@ function run() {
   }
   output.value = result.output;
   setActions();
-  setStatus(statusMessage(result), result.uncertain ? "warn" : "ok");
+  const kind = edits.invalid ? "warn" : (result.uncertain ? "warn" : "ok");
+  const dotted = edits.invalid ? " A prefix without a dot was left unchanged. Use a value like x.x." : "";
+  setStatus(statusMessage(result) + dotted, kind);
   renderSummary(result);
 }
 
 function readFile(file) {
   if (file.size > MAX_BYTES) {
-    setStatus("That file is larger than 2 MB. Choose a smaller text config.", "error");
+    setStatus("That file is larger than 2 MB. Choose a smaller text file.", "error");
     return;
   }
   const reader = new FileReader();
   reader.onload = () => {
-    input.value = typeof reader.result === "string" ? reader.result : "";
+    const text = String(reader.result ?? "").replace(/^\uFEFF/, "").replace(/\u0000/g, "");
+    if (!text.trim()) {
+      setStatus("That file did not contain readable text.", "error");
+      return;
+    }
+    input.value = text;
     run();
   };
   reader.onerror = () => {
@@ -205,12 +227,42 @@ function refreshPrefixes() {
   }
 }
 
-function readPrefixEdits() {
-  const edits = {};
-  for (const field of prefixList.querySelectorAll("input[data-prefix]")) {
-    edits[field.dataset.prefix] = field.value;
+function applyAllPrefixes() {
+  const value = prefixAll.value.trim();
+  if (!value.includes(".")) {
+    setStatus("A prefix needs a dot, for example x.x.", "warn");
+    prefixAll.focus();
+    return;
   }
-  return edits;
+  const fields = prefixList.querySelectorAll("input[data-prefix]");
+  if (fields.length === 0) {
+    setStatus("No IPv4 prefixes to change yet.", "warn");
+    return;
+  }
+  for (const field of fields) field.value = value;
+  if (input.value.trim()) run();
+}
+
+function currentPlaceholder() {
+  if (placeholderStyle.value === "custom") return placeholderCustom.value;
+  return placeholderStyle.value;
+}
+
+function readPrefixEdits() {
+  const values = {};
+  let invalid = false;
+  for (const field of prefixList.querySelectorAll("input[data-prefix]")) {
+    const value = field.value.trim();
+    const unchanged = !value || value === field.dataset.prefix;
+    if (!unchanged && !value.includes(".")) {
+      invalid = true;
+      field.classList.add("invalid");
+    } else {
+      field.classList.remove("invalid");
+    }
+    values[field.dataset.prefix] = field.value;
+  }
+  return { values, invalid };
 }
 
 async function copyOutput() {

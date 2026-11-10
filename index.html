@@ -26,8 +26,22 @@
         </select>
       </label>
       <label class="file">
-        Config file
-        <input id="file" type="file" accept=".cfg,.conf,.config,.txt,.text,.log,text/plain">
+        File or command output
+        <input id="file" type="file">
+      </label>
+      <label>
+        Placeholder
+        <select id="placeholder-style">
+          <option value="REDACTED">REDACTED_1</option>
+          <option value="SECRET">SECRET_1</option>
+          <option value="XXXXX">XXXXX_1</option>
+          <option value="********">********_1</option>
+          <option value="custom">Custom</option>
+        </select>
+      </label>
+      <label id="placeholder-custom-wrap" hidden>
+        Custom placeholder
+        <input id="placeholder-custom" type="text" spellcheck="false" autocomplete="off" placeholder="REDACTED" value="REDACTED">
       </label>
       <div class="buttons">
         <button type="submit" id="obfuscate">Obfuscate</button>
@@ -39,7 +53,14 @@
 
     <section class="summary-wrap" id="prefixes">
       <h2>IPv4 prefixes</h2>
-      <p class="muted">First two octets of every IPv4 address, before secrets are redacted. Edit a value to replace that prefix everywhere in the config. The last two octets stay. Leave a prefix as it is to keep it.</p>
+      <p class="muted">First two octets of every IPv4 address, including addresses in command output. Set all of them at once, or edit a row if you want. A replacement must contain a dot, such as <code>x.x</code>. Leave a row unchanged to keep that prefix. The last two octets stay.</p>
+      <div class="prefix-toolbar">
+        <label>
+          Every prefix
+          <input id="prefix-all" type="text" spellcheck="false" autocomplete="off" value="x.x">
+        </label>
+        <button type="button" id="set-all-prefixes">Set all</button>
+      </div>
       <div id="prefix-list">
         <p class="muted">No IPv4 addresses in the config yet.</p>
       </div>
@@ -71,7 +92,7 @@
   </main>
 
   <footer>
-    <p>The same secret string in one config always becomes the same <code>REDACTED_N</code> placeholder. A new run starts the numbers over. Hostnames, usernames, ACLs, VLANs, and descriptions stay. IPv4 addresses keep their last two octets unless you change a prefix above.</p>
+    <p>The same secret string in one file always becomes the same numbered placeholder. A new run starts the numbers over. Choose the placeholder text above, or type your own. Hostnames, usernames, ACLs, VLANs, and descriptions stay. IPv4 addresses keep their last two octets unless you change a prefix, and a new prefix must include a dot.</p>
   </footer>
 
   <noscript>This tool needs JavaScript. It still does not send the config anywhere.</noscript>

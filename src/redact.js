@@ -87,7 +87,13 @@ const SUBCOMMANDS = {
   router: /^(no\s+)?(network|passive-interface|redistribute|address-family|af-interface|authentication|area-password|domain-password|lsp-password|metric|auto-summary|version|default-information|distance|maximum-paths|neighbor|eigrp)\b/i,
 };
 
-function createSession() {
+export function placeholderStem(value) {
+  const cleaned = String(value ?? "").replace(/[\r\n]/g, "").trim();
+  return (cleaned || "REDACTED").slice(0, 40);
+}
+
+function createSession(placeholder) {
+  const stem = placeholderStem(placeholder);
   const values = new Map();
   const counts = Object.fromEntries(CATEGORIES.map((category) => [category.id, 0]));
   return {
@@ -95,7 +101,7 @@ function createSession() {
     tokenFor(secret, category) {
       let token = values.get(secret);
       if (!token) {
-        token = `REDACTED_${values.size + 1}`;
+        token = `${stem}_${values.size + 1}`;
         values.set(secret, token);
       }
       counts[category] += 1;
@@ -479,6 +485,40 @@ function redactCvauth(line, session) {
   return replaceKeywordSecret(line, /-cvauth(?:=|\s+)/i, session, "mgmt");
 }
 
+function redactLabeled(line, session) {
+  if (/^\s*(?:description|remark|banner|name)\b/i.test(line)) return line;
+  let next = replaceKeywordSecret(line, /(?:^|\s)(?:Password|password|passwd|passphrase)\s*[:=]\s+/i, session, "user");
+  next = replaceKeywordSecret(next, /(?:^|\s)community(?:\s+(?:string|name))?\s*[:=]\s+/i, session, "snmp");
+  return next;
+}
+
+const EMBEDDED_COMMAND = /(?:enable\s+(?:password|secret)|username\s+\S+|aaa\s+root\s+secret|snmp-server\s+(?:community|host|user)|(?:tacacs|radius)-server\b|ntp\s+authentication-key|(?:ip|ipv6)\s+ospf\s+(?:message-digest-key|authentication-key)|neighbor\s+\S+\s+password|crypto\s+isakmp\s+key|pre-shared-key\b|key-string\b|server-key\b|wpa-psk\s+|security\s+wpa\s+psk\s+set-key\b)/i;
+
+function redactLoose(line, session, context) {
+  const direct = redactLabeled(redactLine(line, session, context), session);
+  if (direct !== line) return direct;
+  if (/^\s*(?:description|remark|banner|name|!)/i.test(line)) return direct;
+  const embedded = EMBEDDED_COMMAND.exec(line);
+  if (!embedded || embedded.index === 0) return direct;
+  return line.slice(0, embedded.index) + redactLine(line.slice(embedded.index), session, context);
+}
+
+function peelCommandOutput(line) {
+  let prefix = "";
+  let rest = line;
+  const prompt = rest.match(/^(\s*[A-Za-z0-9][\w.\-/:]*[#>])\s*/);
+  if (prompt) {
+    prefix = prompt[0];
+    rest = rest.slice(prompt[0].length);
+  }
+  const stamp = rest.match(/^((?:[A-Z][a-z]{2}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?:\s+)|(?:\d{4}-\d{2}-\d{2}[T ][\d:.]+Z?\s+))/);
+  if (stamp) {
+    prefix += stamp[1];
+    rest = rest.slice(stamp[1].length);
+  }
+  return { prefix, rest };
+}
+
 function redactLine(line, session, context) {
   let next = line;
   next = redactEnable(next, session);
@@ -519,9 +559,9 @@ function takeBlock(lines, start, endTest) {
  * @param {string} text
  * @returns {{ output: string, counts: Record<string, number> }}
  */
-export function redactConfig(text) {
+export function redactConfig(text, options = {}) {
   const source = String(text ?? "");
-  const session = createSession();
+  const session = createSession(options.placeholder);
   const newline = source.includes("\r\n") ? "\r\n" : "\n";
   const lines = source.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
   const out = [];
@@ -560,9 +600,11 @@ export function redactConfig(text) {
       continue;
     }
 
-    updateContext(ctx, line);
+    const peeled = peelCommandOutput(line);
+    const commandLine = peeled.prefix && peeled.rest ? peeled.rest : line;
+    updateContext(ctx, commandLine);
 
-    if (/^\s*key-string\s*$/i.test(line) && (ctx.name === "pubkey-chain" || ctx.name === "pubkey-key")) {
+    if (/^\s*key-string\s*$/i.test(commandLine) && (ctx.name === "pubkey-chain" || ctx.name === "pubkey-key")) {
       out.push(line);
       const block = takeBlock(lines, i + 1, (candidate) => /^\s*quit\s*$/i.test(candidate));
       const secret = block.body.filter(Boolean).join("");
@@ -573,7 +615,10 @@ export function redactConfig(text) {
       continue;
     }
 
-    out.push(redactLine(line, session, ctx.name));
+    const redacted = peeled.prefix && peeled.rest
+      ? peeled.prefix + redactLoose(peeled.rest, session, ctx.name)
+      : redactLoose(line, session, ctx.name);
+    out.push(redacted);
     i += 1;
   }
 

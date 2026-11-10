@@ -40,11 +40,15 @@ function activeReplacements(replacements) {
   if (!replacements) return active;
   const entries = replacements instanceof Map ? replacements.entries() : Object.entries(replacements);
   for (const [prefix, value] of entries) {
-    const next = String(value ?? "").replace(/[\r\n]/g, "").trim();
-    if (!next || next === prefix) continue;
+    const next = normalizePrefixReplacement(value);
+    if (!next || next === prefix || !next.includes(".")) continue;
     active.set(String(prefix), next);
   }
   return active;
+}
+
+export function normalizePrefixReplacement(value) {
+  return String(value ?? "").replace(/[\r\n]/g, "").trim();
 }
 
 function comparePrefixes(a, b) {
