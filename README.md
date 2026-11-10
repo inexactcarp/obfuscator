@@ -8,19 +8,36 @@ Before secrets are redacted, the page lists every unique IPv4 prefix (the first 
 
 Hostnames, usernames, interface names, descriptions, ACL structure, VLANs, and routing structure stay. A description or banner is not treated as a secret, even if it contains the word "password". IPv6 addresses are not listed or rewritten.
 
-## Run locally
+## Portable exe
 
-From this directory:
+The page is packed into one program that compiles to a single file. The program listens on `127.0.0.1` and opens your browser. It only serves the page. It has no upload API, and the config is still processed in the browser.
+
+Install Go 1.22 or newer, then from this directory:
+
+```bash
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o obfuscator.exe .
+```
+
+`obfuscator.exe` needs no installer and no extra files. Copy it anywhere and double-click it. Close the console window to quit.
+
+The same command without `GOOS=windows GOARCH=amd64` builds a binary for the machine you are on:
+
+```bash
+CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o obfuscator .
+./obfuscator
+```
+
+`-open=false` skips launching a browser. `-addr 127.0.0.1:8080` picks the port. Other addresses are refused.
+
+## Run the page without building
 
 ```bash
 python3 -m http.server 8080
 ```
 
-Open http://127.0.0.1:8080
+Open http://127.0.0.1:8080. `npm start` does the same thing. Opening `index.html` as a file will not work: the page loads ES modules, and browsers block those on `file://`.
 
-`npm start` does the same thing. Opening `index.html` as a file will not work: the page loads ES modules, and browsers block those on `file://`.
-
-No install step and no network calls from the app. Copy and Download use the obfuscated text only. Clear wipes the page. Nothing is written to `localStorage`.
+Copy and Download use the obfuscated text only. Clear wipes the page. Nothing is written to `localStorage`.
 
 ## Tests
 
