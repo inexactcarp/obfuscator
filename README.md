@@ -1,45 +1,30 @@
 # Config Obfuscator
 
-Redacts secrets from Cisco IOS, IOS-XE, NX-OS, and Arista EOS switch and router configs in the browser. The config is not uploaded and is not stored.
+A Windows app that redacts secrets from Cisco IOS, IOS-XE, NX-OS, and Arista EOS switch and router configs, command output, and other text. The text stays in the window. Nothing is uploaded or stored.
 
-Paste a config, command output, or any other text file. The file picker is not limited to config extensions. The tool replaces each secret field with a numbered placeholder. The default is `REDACTED_1`. The placeholder menu also offers `SECRET`, `XXXXX`, and `********`, and a custom box accepts another stem. The same secret string in that file always gets the same number, so repeated keys stay recognizable without revealing the value. Numbering starts over on the next run. The summary is counts by category. It never lists the removed values.
+Paste into the window, or use **Open file**. The file dialog accepts any file type. The tool replaces each secret field with a numbered placeholder. The default is `REDACTED_1`. The placeholder menu also offers `SECRET`, `XXXXX`, and `********`, and Custom shows a box for another stem. The same secret string in that text always gets the same number, so repeated keys stay recognizable without revealing the value. Numbering starts over on the next run. The summary is counts by category. It never lists the removed values.
 
-Before secrets are redacted, the page lists every unique IPv4 prefix (the first two octets), including addresses in `show` output and logs. **Set all** writes one replacement onto every prefix. `x.x` is filled in as the example: `10.1.4.9` and `10.20.1.1` both become `x.x.4.9` and `x.x.1.1`. Editing a single row is optional. A replacement must contain a dot; a value without one is left unchanged. A prefix left equal to itself is not changed, so addresses stay put until you edit them. The last two octets stay. The same prefix is rewritten in addresses, ACLs, command output, and banners. Subnet masks and wildcards are dotted quads too, so they show up in the list and stay unless you edit them.
+The window lists every unique IPv4 prefix (the first two octets), including addresses in `show` output and logs. **Set all** writes one replacement onto every prefix. `x.x` is filled in as the example: `10.1.4.9` and `10.20.1.1` both become `x.x.4.9` and `x.x.1.1`. Editing a single row is optional. A replacement must contain a dot; a value without one is left unchanged. A prefix left equal to itself is not changed, so addresses stay put until you edit them. The last two octets stay. The same prefix is rewritten in addresses, ACLs, command output, and banners. Subnet masks and wildcards are dotted quads too, so they show up in the list and stay unless you edit them.
 
 Lines copied from a terminal may start with a prompt such as `edge-sw1#` or a syslog timestamp. Those prefixes are kept, and the command after them is still redacted. Labeled values such as `Password:` and `Community name:` are redacted too. A description, remark, or banner is not treated as a secret.
 
 Hostnames, usernames, interface names, descriptions, ACL structure, VLANs, and routing structure stay. IPv6 addresses are not listed or rewritten.
 
-## Portable exe
+## Run it
 
-The page is packed into one program that compiles to a single file. The program listens on `127.0.0.1` and opens your browser. It only serves the page. It has no upload API, and the config is still processed in the browser.
+Download [obfuscator.exe](obfuscator.exe). It is one file, with no installer and no extra files. Double-click it. A window opens. It does not open a browser and it does not listen on a network port. Close the window to quit.
+
+**Copy** puts the obfuscated text on the clipboard. **Save** writes that text to a file you choose. **Clear** wipes the window.
+
+## Build
 
 Install Go 1.22 or newer, then from this directory:
 
 ```bash
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w" -o obfuscator.exe .
+CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "-s -w -H windowsgui" -o obfuscator.exe .
 ```
 
-A built copy is in this repository as [obfuscator.exe](obfuscator.exe). It needs no installer and no extra files. Download it, then double-click it. Close the console window to quit.
-
-The same command without `GOOS=windows GOARCH=amd64` builds a binary for the machine you are on:
-
-```bash
-CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o obfuscator .
-./obfuscator
-```
-
-`-open=false` skips launching a browser. `-addr 127.0.0.1:8080` picks the port. Other addresses are refused.
-
-## Run the page without building
-
-```bash
-python3 -m http.server 8080
-```
-
-Open http://127.0.0.1:8080. `npm start` does the same thing. Opening `index.html` as a file will not work: the page loads ES modules, and browsers block those on `file://`.
-
-Copy and Download use the obfuscated text only. Clear wipes the page. Nothing is written to `localStorage`.
+`-H windowsgui` builds a windowed program, so double-clicking it does not open a console.
 
 ## Tests
 
