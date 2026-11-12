@@ -18,6 +18,8 @@ export const CATEGORIES = [
   { id: "routing", label: "Routing authentication keys" },
   { id: "ntp", label: "NTP authentication keys" },
   { id: "crypto", label: "IPsec, IKE, and crypto keys" },
+  { id: "certificate", label: "Crypto certificates" },
+  { id: "banner", label: "Login banners" },
   { id: "wireless", label: "Wireless and 802.1X PSKs" },
   { id: "mgmt", label: "Management API secrets" },
 ];
@@ -79,6 +81,7 @@ const SUBCOMMANDS = {
   "ikev2-peer": /^(no\s+)?(address|hostname|identity|pre-shared-key|description)\b/i,
   "crypto-keyring": /^(no\s+)?(pre-shared-key|local-address|description|psk)\b/i,
   "pubkey-chain": /^(no\s+)?(addressed-key|named-key|key-string|quit)\b/i,
+  "pki-chain": /^(no\s+)?(certificate|quit)\b/i,
   "pubkey-key": /^(no\s+)?(key-string|quit|address|serial-number|signature|key-hash)\b/i,
   dot1x: /^(no\s+)?(username|password|anonymous-id|description|psk)\b/i,
   dot11: /^(no\s+)?(authentication|wpa-psk|vlan|mbssid|guest-mode|max-associations)\b/i,
@@ -203,6 +206,7 @@ function openingContext(trimmed) {
   if (/^crypto\s+ikev2\s+keyring\b/i.test(trimmed)) return "ikev2-keyring";
   if (/^crypto\s+keyring\b/i.test(trimmed)) return "crypto-keyring";
   if (/^crypto\s+key\s+pubkey-chain\b/i.test(trimmed)) return "pubkey-chain";
+  if (/^crypto\s+(?:pki|ca)\s+certificate\s+chain\b/i.test(trimmed)) return "pki-chain";
   if (/^dot1x\s+credentials\b/i.test(trimmed)) return "dot1x";
   if (/^dot11\s+ssid\b/i.test(trimmed)) return "dot11";
   if (/^wlan\s+\S+/i.test(trimmed)) return "wlan";
@@ -243,11 +247,55 @@ function updateContext(ctx, line) {
 }
 
 function bannerDelimiter(line) {
-  const match = /^(\s*banner\s+(?:motd|login|exec|incoming|slip-ppp)\s+)(\S)/i.exec(line);
+  const match = /^(\s*banner\s+(motd|login|exec|incoming|slip-ppp)\s+)(\S)/i.exec(line);
   if (!match) return null;
-  const delim = match[2];
+  const delim = match[3];
   const rest = line.slice(match[1].length + 1);
-  return { delim, closed: rest.includes(delim) };
+  return { kind: match[2].toLowerCase(), head: match[1], delim, closed: rest.includes(delim) };
+}
+
+function redactLoginBanner(line, lines, index, session) {
+  const parsed = bannerDelimiter(line);
+  if (!parsed || parsed.kind !== "login") return null;
+  const { head, delim } = parsed;
+  const rest = line.slice(head.length + 1);
+  const closeAt = rest.indexOf(delim);
+  if (closeAt !== -1) {
+    const body = rest.slice(0, closeAt);
+    const token = body.trim() ? session.tokenFor(body, "banner") : "";
+    return {
+      lines: [head + delim + token + delim + rest.slice(closeAt + 1)],
+      next: index + 1,
+    };
+  }
+  const parts = [];
+  if (rest.trim()) parts.push(rest);
+  let j = index + 1;
+  while (j < lines.length && !lines[j].includes(delim)) {
+    parts.push(lines[j]);
+    j += 1;
+  }
+  const body = parts.join("\n").trim();
+  const out = [head + delim];
+  if (body) {
+    const sample = lines[index + 1] && !lines[index + 1].includes(delim) ? lines[index + 1] : "";
+    const indent = sample.match(/^\s*/)[0];
+    out.push(`${indent}${session.tokenFor(body, "banner")}`);
+  }
+  if (j < lines.length) out.push(lines[j]);
+  return { lines: out, next: j + 1 };
+}
+
+function pemCategory(line) {
+  const match = /-----BEGIN ([A-Z0-9 ]+)-----/.exec(line);
+  if (!match) return null;
+  if (/PRIVATE KEY$/.test(match[1])) return { label: match[1], category: "crypto" };
+  if (/CERTIFICATE$/.test(match[1])) return { label: match[1], category: "certificate" };
+  return null;
+}
+
+function isHexDump(line) {
+  return /^[0-9A-Fa-f]{2,}(?:\s+[0-9A-Fa-f]{2,})*$/.test(line.trim());
 }
 
 function redactEnable(line, session) {
@@ -574,6 +622,12 @@ export function redactConfig(text, options = {}) {
     if (banner) {
       ctx.name = "global";
       ctx.indent = 0;
+      if (banner.kind === "login") {
+        const replaced = redactLoginBanner(line, lines, i, session);
+        out.push(...replaced.lines);
+        i = replaced.next;
+        continue;
+      }
       out.push(line);
       if (!banner.closed) {
         i += 1;
@@ -587,13 +641,15 @@ export function redactConfig(text, options = {}) {
       continue;
     }
 
-    if (/-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----/.test(line)) {
+    const pem = pemCategory(line);
+    if (pem) {
       ctx.name = "global";
       ctx.indent = 0;
       out.push(line);
-      const block = takeBlock(lines, i + 1, (candidate) => /-----END [A-Z0-9 ]*PRIVATE KEY-----/.test(candidate));
+      const end = `-----END ${pem.label}-----`;
+      const block = takeBlock(lines, i + 1, (candidate) => candidate.includes(end));
       const secret = block.body.filter(Boolean).join("");
-      if (secret) out.push(`${block.indent}${session.tokenFor(secret, "crypto")}`);
+      if (secret) out.push(`${block.indent}${session.tokenFor(secret, pem.category)}`);
       i = block.next;
       if (i < lines.length) out.push(lines[i]);
       i += 1;
@@ -603,6 +659,26 @@ export function redactConfig(text, options = {}) {
     const peeled = peelCommandOutput(line);
     const commandLine = peeled.prefix && peeled.rest ? peeled.rest : line;
     updateContext(ctx, commandLine);
+
+    if (/^\s*certificate\b/i.test(commandLine) && ctx.name === "pki-chain") {
+      const hex = [];
+      let j = i + 1;
+      while (j < lines.length && isHexDump(lines[j])) {
+        hex.push(lines[j].trim());
+        j += 1;
+      }
+      if (hex.length) {
+        out.push(line);
+        const indent = lines[i + 1].match(/^\s*/)[0];
+        out.push(`${indent}${session.tokenFor(hex.join(""), "certificate")}`);
+        i = j;
+        if (i < lines.length && /^\s*quit\s*$/i.test(lines[i])) {
+          out.push(lines[i]);
+          i += 1;
+        }
+        continue;
+      }
+    }
 
     if (/^\s*key-string\s*$/i.test(commandLine) && (ctx.name === "pubkey-chain" || ctx.name === "pubkey-key")) {
       out.push(line);

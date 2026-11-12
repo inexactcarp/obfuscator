@@ -51,6 +51,8 @@ const zero = {
   routing: 0,
   ntp: 0,
   crypto: 0,
+  certificate: 0,
+  banner: 0,
   wireless: 0,
   mgmt: 0,
 };
@@ -67,6 +69,8 @@ test("IOS fixture redacts secrets and keeps structure", () => {
     routing: 4,
     ntp: 1,
     crypto: 6,
+    certificate: 1,
+    banner: 1,
     wireless: 3,
   });
   const output = result.output;
@@ -96,7 +100,10 @@ test("IOS fixture redacts secrets and keeps structure", () => {
   assert.match(output, /^ password 0 REDACTED_\d+$/m);
   assert.match(output, /^-----BEGIN RSA PRIVATE KEY-----$/m);
   assert.match(output, /^-----END RSA PRIVATE KEY-----$/m);
-  assert.match(output, /^PUBLIC_CERT_MATERIAL_SHOULD_STAY$/m);
+  assert.match(output, /^-----BEGIN CERTIFICATE-----$/m);
+  assert.doesNotMatch(output, /SEC_IOS_CERT_BODY/);
+  assert.doesNotMatch(output, /SEC_IOS_LOGIN_BANNER/);
+  assert.match(output, /^banner login \^$/m);
   assert.match(output, /SSH_PUBLIC_FINGERPRINT/);
   assert.match(output, /^ authentication pre-share$/m);
   assert.match(output, /^service password-encryption$/m);
@@ -189,18 +196,69 @@ test("usernames, descriptions, and hostnames stay when they match a secret", () 
   assert.equal(lines[4], " ip address 10.0.0.1 255.255.255.0");
 });
 
-test("banners keep whatever was typed into them", () => {
-  const { output } = redactConfig([
+test("motd banners keep their text and login banners are removed", () => {
+  const { output, counts } = redactConfig([
     "banner motd ^",
     "password SEC_SHOULD_STAY_IN_BANNER",
     "enable secret 0 not-a-command-here",
+    "^",
+    "banner login ^",
+    "SEC_LOGIN_ONE",
+    "SEC_LOGIN_TWO",
+    "^",
+    "banner login #SEC_INLINE#",
+    "banner exec ^",
+    "exec banner stays",
     "^",
     "enable secret 0 SEC_REAL",
   ].join("\n"));
   assert.match(output, /^password SEC_SHOULD_STAY_IN_BANNER$/m);
   assert.match(output, /^enable secret 0 not-a-command-here$/m);
+  assert.match(output, /^exec banner stays$/m);
+  assert.doesNotMatch(output, /SEC_LOGIN/);
+  assert.doesNotMatch(output, /SEC_INLINE/);
+  assert.match(output, /^banner login \^$/m);
+  assert.match(output, /^banner login #REDACTED_\d+#$/m);
+  assert.equal(counts.banner, 2);
   assert.doesNotMatch(output, /SEC_REAL/);
-  assert.match(output, /^enable secret 0 REDACTED_1$/m);
+  assert.match(output, /^enable secret 0 REDACTED_\d+$/m);
+});
+
+test("crypto certificates are removed and key hashes stay", () => {
+  const { output, counts } = redactConfig([
+    "-----BEGIN CERTIFICATE-----",
+    "SEC_CERT_PEM",
+    "-----END CERTIFICATE-----",
+    "-----BEGIN TRUSTED CERTIFICATE-----",
+    "SEC_TRUSTED_CERT",
+    "-----END TRUSTED CERTIFICATE-----",
+    "-----BEGIN CERTIFICATE REQUEST-----",
+    "CSR_SHOULD_STAY",
+    "-----END CERTIFICATE REQUEST-----",
+    "ip ssh pubkey-chain",
+    " username admin",
+    "  key-hash ssh-rsa 0123456789ABCDEF SSH_PUBLIC_FINGERPRINT",
+    "crypto pki certificate chain TP",
+    " certificate ca 01",
+    "  30820314 30820202 A0030201",
+    "  02020101 300D0609",
+    "        quit",
+    " certificate 02 nvram:TP.cer",
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "SEC_PEM_STILL_A_KEY",
+    "-----END RSA PRIVATE KEY-----",
+  ].join("\n"));
+  assert.doesNotMatch(output, /SEC_CERT_PEM/);
+  assert.doesNotMatch(output, /SEC_TRUSTED_CERT/);
+  assert.doesNotMatch(output, /30820314/);
+  assert.doesNotMatch(output, /02020101/);
+  assert.match(output, /^CSR_SHOULD_STAY$/m);
+  assert.match(output, /SSH_PUBLIC_FINGERPRINT/);
+  assert.match(output, /^ certificate 02 nvram:TP\.cer$/m);
+  assert.match(output, /^        quit$/m);
+  assert.match(output, /-----BEGIN RSA PRIVATE KEY-----\nREDACTED_\d+\n-----END RSA PRIVATE KEY-----/);
+  assert.equal(counts.certificate, 3);
+  assert.equal(counts.crypto, 1);
 });
 
 test("quoted secrets and CRLF line endings", () => {

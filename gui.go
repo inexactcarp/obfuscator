@@ -30,7 +30,7 @@ import (
 
 const maxFileBytes = 2 * 1024 * 1024
 
-const appVersion = "1.1.2"
+const appVersion = "1.1.3"
 
 // editorMaxPx is tall enough for a 2 MB config of short lines. The pane
 // scrolls as one list, so the text editor itself must not start scrolling.
@@ -1142,7 +1142,7 @@ func summaryText(result Result) string {
 		fmt.Fprintf(&b, "\n%d IPv4 addresses had their first two octets rewritten.", result.AddressesRewritten)
 	}
 	if total == 0 {
-		b.WriteString("\nNo secret fields matched. A password hidden in a description, banner, or unusual command may still be present.")
+		b.WriteString("\nNo secret fields matched. A password hidden in a description, remark, or MOTD banner may still be present.")
 		return b.String()
 	}
 	for _, category := range result.Categories {

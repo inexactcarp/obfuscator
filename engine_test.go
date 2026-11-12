@@ -14,7 +14,7 @@ func TestFixturesMatchTheJavaScriptSuite(t *testing.T) {
 		platform string
 		counts   map[string]int
 	}{
-		{"ios.cfg", "ios", map[string]int{"enable": 7, "user": 3, "line": 3, "snmp": 4, "tacacsRadius": 7, "keychain": 1, "routing": 4, "ntp": 1, "crypto": 6, "wireless": 3}},
+		{"ios.cfg", "ios", map[string]int{"enable": 7, "user": 3, "line": 3, "snmp": 4, "tacacsRadius": 7, "keychain": 1, "routing": 4, "ntp": 1, "crypto": 6, "certificate": 1, "banner": 1, "wireless": 3}},
 		{"nxos.cfg", "nxos", map[string]int{"user": 2, "line": 1, "snmp": 4, "tacacsRadius": 3, "keychain": 1, "routing": 3, "ntp": 1}},
 		{"eos.cfg", "eos", map[string]int{"user": 3, "snmp": 4, "tacacsRadius": 3, "keychain": 1, "routing": 2, "ntp": 1, "mgmt": 1}},
 	}

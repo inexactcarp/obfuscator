@@ -149,7 +149,7 @@ function renderSummary(result) {
   if (total === 0) {
     const note = document.createElement("p");
     note.className = "muted";
-    note.textContent = "No secret fields matched. A password hidden in a description, banner, or unusual command may still be present.";
+    note.textContent = "No secret fields matched. A password hidden in a description, remark, or MOTD banner may still be present.";
     summary.appendChild(note);
     return;
   }
